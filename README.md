@@ -1,1 +1,1 @@
-Table tennis event spotting detection
+Table tennis event spotting detection for Computer Vision exam
