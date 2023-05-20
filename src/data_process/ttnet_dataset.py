@@ -51,14 +51,15 @@ class TTNet_Dataset(Dataset):
         img_path_list, org_ball_pos_xy, target_events, seg_path = self.events_infor[index]
         # Load segmentation
         seg_img = load_raw_img(seg_path)
-        self.jpeg_reader = TurboJPEG()  # improve it later (Only initialize it once)
+        #self.jpeg_reader = TurboJPEG('C:\\libjpeg-turbo-gcc64\\lib\\libjpeg.dll.a')  # improve it later (Only initialize it once)
         # Load a sequence of images (-4, 4), resize images before stacking them together
         # Use TurboJPEG to speed up the loading images' phase
         resized_imgs = []
         for img_path in img_path_list:
-            in_file = open(img_path, 'rb')
-            resized_imgs.append(cv2.resize(self.jpeg_reader.decode(in_file.read(), 0), (self.w_input, self.h_input)))
-            in_file.close()
+            #in_file = open(img_path, 'rb')
+            in_file = cv2.imread(img_path)
+            resized_imgs.append(cv2.resize(in_file, (self.w_input, self.h_input)))
+            #in_file.close()
         resized_imgs = np.dstack(resized_imgs)  # (128, 320, 27)
         # Adjust ball pos: full HD --> (320, 128)
         global_ball_pos_xy = self.__resize_ball_pos__(org_ball_pos_xy, self.w_resize_ratio, self.h_resize_ratio)
