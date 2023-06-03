@@ -12,7 +12,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from models import VideoTransformer
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -59,10 +59,79 @@ class DeconvBlock(nn.Module):
 
         return x
 
+class VideoTransformer(nn.Module):
+    def __init__(self, clip_length, frame_height, frame_width, patch_size, num_classes, dim, depth, heads, mlp_dim):
+        super(VideoTransformer, self).__init__()
+
+        num_patches = (frame_height // patch_size) * (frame_width // patch_size)
+        patch_dim = 3 * patch_size ** 2
+
+        self.patch_embedding = nn.Conv2d(3, dim, kernel_size=patch_size, stride=patch_size)
+        self.positional_encoding = nn.Parameter(torch.zeros(1, clip_length, num_patches + 1, dim))
+        self.transformer_encoder = TransformerEncoder(dim, depth, heads, mlp_dim)
+        self.classification_head = nn.Linear(dim * num_patches, num_classes)
+
+    def forward(self, x):
+        batch_size, clip_length, _, _, _ = x.size()
+        x = x.reshape(batch_size * clip_length, 3, self.frame_height, self.frame_width)
+        x = self.patch_embedding(x)
+        x = x.flatten(2).transpose(1, 2)
+        x = torch.cat((self.positional_encoding[:, :clip_length].reshape(1, -1, self.dim), x), dim=1)
+        x = self.transformer_encoder(x)
+        x = x.flatten(2)
+        x = self.classification_head(x)
+        return x
+
+class TransformerEncoder(nn.Module):
+    def __init__(self, dim, depth, heads, mlp_dim):
+        super(TransformerEncoder, self).__init__()
+        self.layers = nn.ModuleList()
+        self.norm = nn.LayerNorm(dim)
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                nn.MultiheadAttention(dim, heads),
+                nn.Linear(dim, mlp_dim),
+                nn.ReLU(),
+                nn.Linear(mlp_dim, dim),
+            ]))
+
+    def forward(self, x):
+        for attention, linear_1, activation, linear_2 in self.layers:
+            x = x + attention(self.norm(x))[0]
+            x = x + linear_2(activation(linear_1(self.norm(x))))
+        return x
+
 
 class BallDetection(nn.Module):
-    def __init__(self, num_frames_sequence, dropout_p):
+    def __init__(self, clip_length, frame_height, frame_width, patch_size, num_classes, dim, depth, heads, mlp_dim):
         super(BallDetection, self).__init__()
+
+        num_patches = (frame_height // patch_size) * (frame_width // patch_size)
+        patch_dim = 3 * patch_size ** 2
+        self.frame_height = frame_height
+        self.frame_width = frame_width
+        self.patch_embedding = nn.Conv2d(3, dim, kernel_size=patch_size, stride=patch_size)
+        self.positional_encoding = nn.Parameter(torch.zeros(1, clip_length, num_patches + 1, dim))
+        self.transformer_encoder = TransformerEncoder(dim, depth, heads, mlp_dim)
+        self.classification_head = nn.Linear(dim * num_patches, num_classes)
+
+    def forward(self, x):
+        batch_size, clip_length, _, _ = x.size()
+        x = x.reshape(batch_size * clip_length, 3, self.frame_height, self.frame_width)
+        x = self.patch_embedding(x)
+        x = x.flatten(2).transpose(1, 2)
+        x = torch.cat((self.positional_encoding[:, :clip_length].reshape(1, -1, self.dim), x), dim=1)
+        x = self.transformer_encoder(x)
+        x = x.flatten(2)
+        x = self.classification_head(x)
+        return x
+    
+
+
+class BallDetection_old(nn.Module):
+    def __init__(self, num_frames_sequence, dropout_p):
+        super(BallDetection_old, self).__init__()
         self.conv1 = nn.Conv2d(num_frames_sequence * 3, 64, kernel_size=1, stride=1, padding=0)
         self.batchnorm = nn.BatchNorm2d(64)
         self.relu = nn.ReLU()
@@ -164,11 +233,21 @@ class TTNet(nn.Module):
     def __init__(self, dropout_p, tasks, input_size, thresh_ball_pos_mask, num_frames_sequence,
                  mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
         super(TTNet, self).__init__()
+        clip_length = 27
+        frame_height = 128
+        frame_width = 320
+        patch_size = 16
+        num_classes = 448
+        dim = 256
+        depth = 12
+        heads = 8
+        mlp_dim = 512
+
         self.tasks = tasks
         self.ball_local_stage, self.events_spotting, self.segmentation = None, None, None
-        self.ball_global_stage = BallDetection(num_frames_sequence=num_frames_sequence, dropout_p=dropout_p)
+        self.ball_global_stage = BallDetection(clip_length, frame_height, frame_width, patch_size, num_classes, dim, depth, heads, mlp_dim)
         if 'local' in tasks:
-            self.ball_local_stage = BallDetection(num_frames_sequence=num_frames_sequence, dropout_p=dropout_p)
+            self.ball_local_stage = BallDetection(clip_length, frame_height, frame_width, patch_size, num_classes, dim, depth, heads, mlp_dim)
         if 'event' in tasks:
             self.events_spotting = EventsSpotting(dropout_p=dropout_p)
         if 'seg' in tasks:

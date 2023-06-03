@@ -44,19 +44,3 @@ class TransformerEncoder(nn.Module):
             x = x + attention(self.norm(x))[0]
             x = x + linear_2(activation(linear_1(self.norm(x))))
         return x
-
-
-clip_length = 27
-frame_height = 128
-frame_width = 320
-patch_size = 16
-num_classes = 448
-dim = 256
-depth = 12
-heads = 8
-mlp_dim = 512
-
-model = VideoTransformer(clip_length, frame_height, frame_width, patch_size, num_classes, dim, depth, heads, mlp_dim)
-
-# Assuming you have an input tensor 'x' of shape [batch_size, clip_length, 3, frame_height, frame_width]
-outputs = model(x)
